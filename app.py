@@ -12,8 +12,10 @@ CORS(app)
 class VanshAIEngine:
     def __init__(self, filename="vansh_ai_data.json"):
         self.filename = filename
-        self.index = {}
-        self.titles = {}
+        self.index = {}    # { word: { url: count } }
+        self.titles = {}   # { url: { title: str, summary: str } }
+        self.images = {}   # { url: [img_urls] }
+        self.messages = [] # List of { user: str, text: str }
         self.owner = "Vansh"
         self.load_from_file()
 
@@ -21,7 +23,12 @@ class VanshAIEngine:
         return re.findall(r'\w+', text.lower())
 
     def save_to_file(self):
-        data = {"index": self.index, "titles": self.titles}
+        data = {
+            "index": self.index, 
+            "titles": self.titles, 
+            "images": self.images, 
+            "messages": self.messages
+        }
         with open(self.filename, 'w') as f:
             json.dump(data, f, indent=4)
 
@@ -32,8 +39,10 @@ class VanshAIEngine:
                     data = json.load(f)
                     self.index = data.get("index", {})
                     self.titles = data.get("titles", {})
+                    self.images = data.get("images", {})
+                    self.messages = data.get("messages", [])
             except:
-                self.index, self.titles = {}, {}
+                pass
 
     def get_summary(self, text):
         clean_text = ' '.join(text.split())
@@ -41,16 +50,25 @@ class VanshAIEngine:
 
     def crawl(self, url):
         try:
-            response = requests.get(url, timeout=5, headers={'User-Agent': 'VanshBot/1.0'})
+            headers = {'User-Agent': 'VanshBot/1.0'}
+            response = requests.get(url, timeout=5, headers=headers)
             soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # 1. Text & Title
             title = soup.title.string if soup.title else url
             text = soup.get_text()
             self.titles[url] = {"title": title, "summary": self.get_summary(text)}
             
+            # 2. Indexing for Search
             words = self._clean_text(text)
             for word in words:
                 if word not in self.index: self.index[word] = {}
                 self.index[word][url] = self.index[word].get(url, 0) + 1
+            
+            # 3. Image Crawling
+            imgs = [img['src'] for img in soup.find_all('img', src=True) if img['src'].startswith('http')]
+            self.images[url] = imgs[:5] 
+            
             self.save_to_file()
             return True
         except Exception as e:
@@ -70,43 +88,57 @@ class VanshAIEngine:
                     scores[url] = scores.get(url, 0) + count
         
         results = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        return [{"url": r[0], **self.titles[r[0]]} for r in results[:10]]
+        # Return results with images if available
+        return [
+            {
+                "url": r[0], 
+                "title": self.titles[r[0]]['title'], 
+                "summary": self.titles[r[0]]['summary'],
+                "images": self.images.get(r[0], [])
+            } for r in results[:10]
+        ]
 
 vse = VanshAIEngine()
 
-# --- ROUTES ---
+# --- WEB ROUTES ---
 
 @app.route('/')
 def home():
     return jsonify({
         "status": "online",
-        "engine": "Vansh AI Engine",
+        "engine": "Vansh Hacker Engine",
         "owner": "Vansh",
-        "endpoints": ["/search?q=query", "/crawl (POST)"]
+        "chat_active": True
     })
 
 @app.route('/search', methods=['GET'])
 def api_search():
     query = request.args.get('q', '')
-    if not query:
-        return jsonify({"type": "error", "content": "Please provide a query."})
+    if not query: return jsonify({"type": "error", "content": "No query"})
         
     result = vse.search(query)
-    
     if result == "HI_USER":
-        return jsonify({"type": "chat", "content": f"Hello {vse.owner}! I'm ready to search."})
+        return jsonify({"type": "chat", "content": f"Hello {vse.owner}! Matrix initialized."})
     if result == "IDENTITY":
-        return jsonify({"type": "chat", "content": f"I am the Vansh AI Engine, built by {vse.owner}."})
+        return jsonify({"type": "chat", "content": f"I am Vansh-AI v2. Created by {vse.owner}."})
     
     return jsonify({"type": "results", "data": result})
 
+@app.route('/chat', methods=['GET', 'POST'])
+def global_chat():
+    if request.method == 'POST':
+        data = request.get_json()
+        msg = data.get('msg')
+        user = data.get('user', 'Guest')
+        if msg:
+            vse.messages.append({"user": user, "text": msg})
+            if len(vse.messages) > 20: vse.messages.pop(0)
+            vse.save_to_file()
+    return jsonify(vse.messages)
+
 @app.route('/crawl', methods=['POST'])
 def api_crawl():
-    data = request.get_json()
-    url = data.get('url')
-    if not url:
-        return jsonify({"status": "error", "message": "No URL provided"}), 400
-    
+    url = request.get_json().get('url')
     success = vse.crawl(url)
     return jsonify({"status": "success" if success else "failed"})
 
