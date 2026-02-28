@@ -1,4 +1,12 @@
 {
-    "index": {},
-    "titles": {}
+    "index": {
+        "search": {"https://en.wikipedia.org/wiki/Search_engine": 5},
+        "engine": {"https://en.wikipedia.org/wiki/Search_engine": 3}
+    },
+    "titles": {
+        "https://en.wikipedia.org/wiki/Search_engine": {
+            "title": "Search engine - Wikipedia",
+            "summary": "A search engine is a software system designed to carry out web searches..."
+        }
+    }
 }

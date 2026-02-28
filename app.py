@@ -41,7 +41,7 @@ class VanshAIEngine:
 
     def crawl(self, url):
         try:
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=5, headers={'User-Agent': 'VanshBot/1.0'})
             soup = BeautifulSoup(response.text, 'html.parser')
             title = soup.title.string if soup.title else url
             text = soup.get_text()
@@ -53,13 +53,13 @@ class VanshAIEngine:
                 self.index[word][url] = self.index[word].get(url, 0) + 1
             self.save_to_file()
             return True
-        except:
+        except Exception as e:
+            print(f"Crawl Error: {e}")
             return False
 
     def search(self, query):
-        q = query.lower()
-        # Identity Logic
-        if q in ["hi", "hello"]: return "HI_USER"
+        q = query.lower().strip()
+        if q in ["hi", "hello", "hey"]: return "HI_USER"
         if "who are you" in q or "who am i" in q: return "IDENTITY"
 
         query_words = self._clean_text(query)
@@ -72,24 +72,41 @@ class VanshAIEngine:
         results = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         return [{"url": r[0], **self.titles[r[0]]} for r in results[:10]]
 
-# Initialize Engine
 vse = VanshAIEngine()
+
+# --- ROUTES ---
+
+@app.route('/')
+def home():
+    return jsonify({
+        "status": "online",
+        "engine": "Vansh AI Engine",
+        "owner": "Vansh",
+        "endpoints": ["/search?q=query", "/crawl (POST)"]
+    })
 
 @app.route('/search', methods=['GET'])
 def api_search():
     query = request.args.get('q', '')
+    if not query:
+        return jsonify({"type": "error", "content": "Please provide a query."})
+        
     result = vse.search(query)
     
     if result == "HI_USER":
-        return jsonify({"type": "chat", "content": f"Hello {vse.owner}! How can I help you today?"})
+        return jsonify({"type": "chat", "content": f"Hello {vse.owner}! I'm ready to search."})
     if result == "IDENTITY":
-        return jsonify({"type": "chat", "content": f"I am the Vansh AI Engine, created by {vse.owner}."})
+        return jsonify({"type": "chat", "content": f"I am the Vansh AI Engine, built by {vse.owner}."})
     
     return jsonify({"type": "results", "data": result})
 
 @app.route('/crawl', methods=['POST'])
 def api_crawl():
-    url = request.json.get('url')
+    data = request.get_json()
+    url = data.get('url')
+    if not url:
+        return jsonify({"status": "error", "message": "No URL provided"}), 400
+    
     success = vse.crawl(url)
     return jsonify({"status": "success" if success else "failed"})
 
